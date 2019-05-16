@@ -12,7 +12,6 @@ import copy
 import time
 from functools import reduce
 
-CACHED_INPUTS_TO_NETWORK = dict()
 NUMBER_OF_LAYERS = 10
 MUTATION_STRENGTH = 0.4
 MAX_WEIGHT = 1000
@@ -21,6 +20,14 @@ DISPLAY_RESOLUTION = (1920, 1080)
 POP_SIZE = 100
 ELITISM = 0.5
 SAVE_IMAGE_PERIOD = 1
+
+
+def static_vars(**kwargs):
+    def decorate(func):
+        for k in kwargs:
+            setattr(func, k, kwargs[k])
+        return func
+    return decorate
 
 
 class PopMember:
@@ -50,9 +57,10 @@ class PopMember:
         return "Fitness: " + str(self.fitness)
 
 
+@static_vars(CACHED_INPUTS_TO_NETWORK=dict())
 def get_input_matrix_for_cppn(size: Tuple[int, int]):
-    global CACHED_INPUTS_TO_NETWORK
-    if size not in CACHED_INPUTS_TO_NETWORK.keys():
+    cache = get_input_matrix_for_cppn.CACHED_INPUTS_TO_NETWORK
+    if size not in cache.keys():
         new_val = torch.empty(size[0] * size[1], 3)
         div = math.sqrt(2)
         for y in range(size[1]):
@@ -64,9 +72,9 @@ def get_input_matrix_for_cppn(size: Tuple[int, int]):
                 new_val[size[0] * y + x, 1] = yy
                 new_val[size[0] * y + x, 2] = rr
         new_val = new_val.cuda()
-        CACHED_INPUTS_TO_NETWORK.update({size: new_val})
+        cache.update({size: new_val})
 
-    return CACHED_INPUTS_TO_NETWORK[size]
+    return cache[size]
 
 
 def generate_image(model: Cppn, size: Tuple[int, int]):
