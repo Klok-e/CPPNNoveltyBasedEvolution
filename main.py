@@ -10,8 +10,9 @@ from collections import deque
 import random
 import copy
 import time
+from functools import reduce
 
-CACHED_BATCH = dict()
+CACHED_INPUTS_TO_NETWORK = dict()
 NUMBER_OF_LAYERS = 10
 MUTATION_STRENGTH = 0.4
 MAX_WEIGHT = 1000
@@ -19,6 +20,7 @@ FITNESS_DECAY = 0.8
 DISPLAY_RESOLUTION = (1920, 1080)
 POP_SIZE = 100
 ELITISM = 0.5
+SAVE_IMAGE_PERIOD = 1
 
 
 class PopMember:
@@ -37,7 +39,8 @@ class PopMember:
             d_mut = (torch.rand(offspr_params[i].data.shape) * 2 - 1).cuda()
             res = ((d_mut / (params[i].grad.abs() + 1)) * MUTATION_STRENGTH)
             offspr_params[i].data += res
-            offspr_params[i].data = offspr_params[i].data.clamp(-MAX_WEIGHT, MAX_WEIGHT)
+            offspr_params[i].data = offspr_params[i].data.clamp(
+                -MAX_WEIGHT, MAX_WEIGHT)
 
         mem = PopMember(offspr)
         mem.fitness = self.fitness * FITNESS_DECAY
@@ -47,9 +50,9 @@ class PopMember:
         return "Fitness: " + str(self.fitness)
 
 
-def generate_image(model: Cppn, size: Tuple[int, int]):
-    global CACHED_BATCH
-    if size not in CACHED_BATCH.keys():
+def get_input_matrix_for_cppn(size: Tuple[int, int]):
+    global CACHED_INPUTS_TO_NETWORK
+    if size not in CACHED_INPUTS_TO_NETWORK.keys():
         new_val = torch.empty(size[0] * size[1], 3)
         div = math.sqrt(2)
         for y in range(size[1]):
@@ -61,12 +64,13 @@ def generate_image(model: Cppn, size: Tuple[int, int]):
                 new_val[size[0] * y + x, 1] = yy
                 new_val[size[0] * y + x, 2] = rr
         new_val = new_val.cuda()
-        CACHED_BATCH.update({size: new_val})
+        CACHED_INPUTS_TO_NETWORK.update({size: new_val})
 
-    # if size == DISPLAY_RESOLUTION:
-    #    size
+    return CACHED_INPUTS_TO_NETWORK[size]
 
-    output = model(CACHED_BATCH[size])
+
+def generate_image(model: Cppn, size: Tuple[int, int]):
+    output = model(get_input_matrix_for_cppn(size))
 
     model.zero_grad()
 
@@ -104,17 +108,21 @@ def main():
 
     size = (32, 32)
 
-    population = [PopMember(Cppn(NUMBER_OF_LAYERS).cuda()) for i in range(POP_SIZE)]
+    population = [PopMember(Cppn(NUMBER_OF_LAYERS).cuda())
+                  for i in range(POP_SIZE)]
     explored_latent = deque(maxlen=10)
-    explored_latent.append(get_latent(autoencoder, generate_image(population[0].net, size)))
+    explored_latent.append(get_latent(
+        autoencoder, generate_image(population[0].net, size)))
 
     for generation in range(1000):
         time_beg = time.time()
         # assign fitness
         for member in population:
-            mn = distance(get_latent(autoencoder, generate_image(member.net, size)), explored_latent[0])
+            mn = distance(get_latent(autoencoder, generate_image(
+                member.net, size)), explored_latent[0])
             for latent in explored_latent:
-                dist = distance(get_latent(autoencoder, generate_image(member.net, size)), latent)
+                dist = distance(get_latent(
+                    autoencoder, generate_image(member.net, size)), latent)
                 if mn > dist:
                     mn = dist
             member.fitness = (mn + member.fitness) / 2
@@ -123,26 +131,32 @@ def main():
         population.sort(key=lambda x: x.fitness, reverse=True)
         population = population[:int(POP_SIZE * ELITISM)]
 
-        explored_latent.append(get_latent(autoencoder, generate_image(population[0].net, size)))
+        explored_latent.append(get_latent(
+            autoencoder, generate_image(population[0].net, size)))
 
         # repopulate population
         ln = len(population) - 1
-        for i in range(int(POP_SIZE * (1 - ELITISM))):
-            population.append(population[random.randint(0, ln)].create_offspring())
+        for _ in range(int(POP_SIZE * (1 - ELITISM))):
+            population.append(
+                population[random.randint(0, ln)].create_offspring())
 
         # log
-        print("Generation: " + str(generation) + "; time elapsed: " + str(time.time() - time_beg))
-        if generation % 1 == 0:
+        print("Generation: " + str(generation) +
+              "; time elapsed: " + str(time.time() - time_beg))
+        if generation % SAVE_IMAGE_PERIOD == 0:
             time_gen = time.time()
             # create and show leader image
-            image = generate_image(population[0].net, DISPLAY_RESOLUTION).cpu().numpy()
+            image = generate_image(
+                population[0].net, DISPLAY_RESOLUTION).cpu().numpy()
             image = (image * 255).astype(np.uint8)
-            ld.save_img(image, "generated images/computer art " + str(generation) + " generation")
-            #plt.imshow(image)
-            #plt.pause(0.1)
-            print("Time spent on cool high res image generation: " + str(time.time() - time_gen))
 
-    input("Press Enter...")
+            current_time_string = reduce(
+                lambda x, y: x+" "+y, map(str, time.localtime()))
+            ld.save_img(image, "generated images/computer art " +
+                        str(generation) + " generation" + current_time_string)
+
+            print("Time spent on cool high res image generation: " +
+                  str(time.time() - time_gen))
 
 
 if __name__ == "__main__":

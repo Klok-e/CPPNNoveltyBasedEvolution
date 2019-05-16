@@ -3,12 +3,12 @@ from itertools import chain
 
 
 class Cppn(nn.Module):
-    def __init__(self, hidden_layers):
+    def __init__(self, hidden_layers, neurons_in_hidden=15, hidden_function=nn.LeakyReLU, output_function=nn.Sigmoid):
         super().__init__()
-        lst=[nn.Linear(3, 15),
-            nn.LeakyReLU(),
-            *chain.from_iterable([(nn.Linear(15, 15), nn.LeakyReLU()) for i in range(hidden_layers)] +
-                                 [(nn.Linear(15, 3), nn.Sigmoid())])]
+        lst = [nn.Linear(3, neurons_in_hidden),
+               hidden_function(),
+               *chain.from_iterable([(nn.Linear(neurons_in_hidden, neurons_in_hidden, hidden_function())) for i in range(hidden_layers)] +
+                                    [(nn.Linear(neurons_in_hidden, 3), output_function())])]
         self.activation = nn.Sequential(
             *lst
         )
