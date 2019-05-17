@@ -12,14 +12,17 @@ import copy
 import time
 from functools import reduce
 
-NUMBER_OF_LAYERS = 10
-MUTATION_STRENGTH = 0.4
+NEURONS_IN_LAYER = 50
+NUMBER_OF_LAYERS = 20
+MUTATION_STRENGTH = 0.2
 MAX_WEIGHT = 1000
 FITNESS_DECAY = 0.8
-DISPLAY_RESOLUTION = (1920, 1080)
+DISPLAY_RESOLUTION = (940, 480)
 POP_SIZE = 100
 ELITISM = 0.5
 SAVE_IMAGE_PERIOD = 1
+HIDDEN_FUNCTION = torch.nn.Tanh
+OUTPUT_FUNCTION = torch.nn.Sigmoid
 
 
 def static_vars(**kwargs):
@@ -36,7 +39,8 @@ class PopMember:
         self.net = network
 
     def create_offspring(self):
-        offspr = Cppn(NUMBER_OF_LAYERS).cuda()
+        offspr = Cppn(NUMBER_OF_LAYERS, NEURONS_IN_LAYER,
+                      HIDDEN_FUNCTION, OUTPUT_FUNCTION).cuda()
         offspr.load_state_dict(copy.deepcopy(self.net.state_dict()))
 
         offspr_params = list(offspr.parameters())
@@ -44,8 +48,8 @@ class PopMember:
 
         for i in range(len(params)):
             d_mut = (torch.rand(offspr_params[i].data.shape) * 2 - 1).cuda()
-            res = ((d_mut / (params[i].grad.abs() + 1)) * MUTATION_STRENGTH)
-            offspr_params[i].data += res
+            to_add = (d_mut/(params[i].grad.abs()+1)) * MUTATION_STRENGTH
+            offspr_params[i].data += to_add
             offspr_params[i].data = offspr_params[i].data.clamp(
                 -MAX_WEIGHT, MAX_WEIGHT)
 
@@ -78,14 +82,16 @@ def get_input_matrix_for_cppn(size: Tuple[int, int]):
 
 
 def generate_image(model: Cppn, size: Tuple[int, int]):
-    output = model(get_input_matrix_for_cppn(size))
+    inp = get_input_matrix_for_cppn(size)
+
+    output = model(inp)
 
     model.zero_grad()
 
-    loss = output.sum()
+    loss = (output ** 2).sum().sqrt()
     loss.backward()
 
-    data = output.data
+    data = output.data.clamp(0, 1)
 
     data = data.reshape((size[1], size[0], 3))
 
@@ -116,7 +122,8 @@ def main():
 
     size = (32, 32)
 
-    population = [PopMember(Cppn(NUMBER_OF_LAYERS).cuda())
+    population = [PopMember(Cppn(NUMBER_OF_LAYERS, NEURONS_IN_LAYER,
+                                 HIDDEN_FUNCTION, OUTPUT_FUNCTION).cuda())
                   for i in range(POP_SIZE)]
     explored_latent = deque(maxlen=10)
     explored_latent.append(get_latent(
@@ -126,13 +133,8 @@ def main():
         time_beg = time.time()
         # assign fitness
         for member in population:
-            mn = distance(get_latent(autoencoder, generate_image(
-                member.net, size)), explored_latent[0])
-            for latent in explored_latent:
-                dist = distance(get_latent(
-                    autoencoder, generate_image(member.net, size)), latent)
-                if mn > dist:
-                    mn = dist
+            mn = min(map(lambda latent: distance(get_latent(
+                autoencoder, generate_image(member.net, size)), latent), explored_latent))
             member.fitness = (mn + member.fitness) / 2
 
         # sort and prune the population
@@ -158,10 +160,8 @@ def main():
                 population[0].net, DISPLAY_RESOLUTION).cpu().numpy()
             image = (image * 255).astype(np.uint8)
 
-            current_time_string = reduce(
-                lambda x, y: x+" "+y, map(str, time.localtime()))
             ld.save_img(image, "generated images/computer art " +
-                        str(generation) + " generation" + current_time_string)
+                        str(generation) + " generation" + str(time.time()))
 
             print("Time spent on cool high res image generation: " +
                   str(time.time() - time_gen))
