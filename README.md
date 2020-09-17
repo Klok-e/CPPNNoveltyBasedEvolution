@@ -1,5 +1,5 @@
 # CPPNNoveltyBasedEvolution
-CPPNs are evolving to progressively create more original art.
+CPPNs evolve to progressively create more original art.
 
 Not quite achieved what i wanted but there were some successful runs.
 
